@@ -8,9 +8,12 @@ import websockets
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 from PyQt5.QtGui import QColor, QFont, QTextBlockFormat, QCloseEvent, QIcon
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTextEdit, QLineEdit, QPushButton, \
-    QDialog, QMessageBox
+    QDialog, QMessageBox, QDesktopWidget
 
 import images
+
+
+# TODO: 禁止用户名重复，若重名或空白则重新输入；重连机制；手动选择服务器
 
 class SimpleChatClient(QThread):
     show_username_dialog_signal = pyqtSignal()
@@ -72,10 +75,11 @@ class SimpleChatClient(QThread):
                 self.display_notification_signal.emit('用户' + data['username'] + '已下线')
 
     async def close_connection_handler(self):
+        await self.connection.close()
         self.loop.stop()
 
     async def main_handler(self):
-        self.connection = await websockets.connect('ws://101.133.223.4:34999/', ping_interval=None)
+        self.connection = await websockets.connect('ws://127.0.0.1:34999/', ping_interval=None)
         self.show_username_dialog_signal.emit()
 
         self.loop = asyncio.get_event_loop()
@@ -119,10 +123,6 @@ class UsernameDialog(QDialog):
         self.simple_chat_client = simple_chat_client
         self.main_window = main_window
 
-        self.setWindowTitle('Simple Chat')
-        self.setFixedWidth(400)
-        self.setWindowIcon(QIcon(':/simple_chat.png'))
-
         layout = QVBoxLayout()
 
         font = QFont()
@@ -143,9 +143,13 @@ class UsernameDialog(QDialog):
         self.simple_chat_client.show_username_dialog_signal.connect(self.show)
         self.simple_chat_client.confirm_username_signal.connect(self.confirm_username)
 
+        self.setWindowTitle('Simple Chat')
+        self.setWindowIcon(QIcon(':/simple_chat.png'))
+        self.resize(400, 200)
+        self.center()
+
     def start(self):
         username = self.line_edit.text().strip()
-
         if username == '':
             QMessageBox.warning(self, '非法用户名', '用户名为空，请重新输入！')
         else:
@@ -154,6 +158,11 @@ class UsernameDialog(QDialog):
     def confirm_username(self, username):
         QMessageBox.information(self, '成功登录', '欢迎！' + username + '！')
         self.accept()
+
+    def center(self):
+        geometry = self.frameGeometry()
+        geometry.moveCenter(QDesktopWidget().availableGeometry().center())
+        self.move(geometry.topLeft())
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
@@ -168,10 +177,6 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.simple_chat_client = simple_chat_client
-
-        self.setWindowTitle('Simple Chat')
-        self.setGeometry(400, 400, 800, 1000)
-        self.setWindowIcon(QIcon(':/simple_chat.png'))
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -202,6 +207,11 @@ class MainWindow(QMainWindow):
         self.simple_chat_client.display_message_header_signal.connect(self.display_message_header)
         self.simple_chat_client.display_message_body_signal.connect(self.display_message_body)
         self.simple_chat_client.display_notification_signal.connect(self.display_notification)
+
+        self.setWindowTitle('Simple Chat')
+        self.setWindowIcon(QIcon(':/simple_chat.png'))
+        self.resize(800, 1000)
+        self.center()
 
     def send_message(self):
         message = self.message_input.toPlainText()
@@ -248,6 +258,11 @@ class MainWindow(QMainWindow):
         cursor = self.chat_box.textCursor()
         cursor.setBlockFormat(text_block_format)
         self.chat_box.setTextCursor(cursor)
+
+    def center(self):
+        geometry = self.frameGeometry()
+        geometry.moveCenter(QDesktopWidget().availableGeometry().center())
+        self.move(geometry.topLeft())
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
