@@ -2,17 +2,13 @@ import asyncio
 import json
 import time
 import typing
-from json import JSONDecodeError
+from loguru import logger
 
 import websockets
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError, WebSocketException, ConnectionClosedOK
+from websockets.exceptions import ConnectionClosed, WebSocketException
 
-"""
-TODO:
-禁止用户名重复，若重名或空白则重新输入
-异常处理
-记录日志到文件
-"""
+
+# TODO: 禁止用户名重复，若重名或空白则重新输入
 
 
 # async def heartbeat(websocket, ping_interval):
@@ -76,17 +72,21 @@ async def send(connection, message: typing.Union[str, dict], check_send_event=Tr
 
 
 async def client_handler(connection):
+    remote_address = connection.remote_address[0] + ':' + str(connection.remote_address[1])
+    logger.info('Incoming connection from [' + remote_address + '].')
     try:
         # Read the first message sent by the client and get the username
         data = json.loads(await connection.recv())
         assert data['type'] == 'init'
         username = data['username']
         del data
-    except WebSocketException:
+    except WebSocketException as e:
+        logger.warning('The connection with [' + remote_address + '] is closed due to error: ' + str(e))
         return
 
-    # The user connects successfully
-    print(username + ' is connected.')
+    # Record information of the user
+    username_and_address = '[' + remote_address + '](' + username + ')'
+    logger.info(username_and_address + ' connected.')
     send_event = asyncio.Event()
     connections[connection] = (username, send_event)
     username_to_connection[username] = connection
@@ -117,12 +117,13 @@ async def client_handler(connection):
             await broadcast_to_all(data)
             del data
 
-    except ConnectionClosedError:
-        print('User ' + username + ' lost connection.')
-    except ConnectionClosedOK:
-        print('User ' + username + ' is disconnected.')
+        logger.info(username_and_address + ' disconnected.')
+
+    except ConnectionClosed as e:
+        logger.warning(username_and_address + ' disconnected with error: ' + str(e))
+
     finally:
-        # User disconnects
+        # User disconnected
         del connections[connection]
         del username_to_connection[username]
 
@@ -135,11 +136,11 @@ async def client_handler(connection):
 
 
 @print_execution_time('Server closed.')
-async def main():
-    async with websockets.serve(client_handler, '0.0.0.0', 34999):
-        print('Server started successfully.')
-        await asyncio.Future()  # run forever
+async def main(host, port):
+    async with websockets.serve(client_handler, host, port) as server:
+        logger.info('Server successfully started at [' + host + ':' + str(port) + '].')
+        await server.serve_forever()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(main('0.0.0.0', 34999))
