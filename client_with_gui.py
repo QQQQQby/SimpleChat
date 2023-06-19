@@ -59,7 +59,6 @@ class SimpleChatClient(QThread):
 
     async def main_handler(self):
         self.connection = await websockets.connect('ws://127.0.0.1:34999/', ping_interval=None)
-        # self.connection = await websockets.connect('ws://106.14.58.153:34999/', ping_interval=None)
 
         self.show_username_dialog_signal.emit()
 
