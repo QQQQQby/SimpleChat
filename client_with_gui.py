@@ -13,24 +13,22 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTe
 import images
 
 
-# TODO: 禁止用户名重复，若重名或空白则重新输入；重连机制；手动选择服务器
+# TODO: 重连机制；手动选择服务器
 
 class SimpleChatClient(QThread):
     show_username_dialog_signal = pyqtSignal()
-    confirm_username_signal = pyqtSignal(str)
-    display_message_header_signal = pyqtSignal(str, bool)
-    display_message_body_signal = pyqtSignal(str)
-    display_notification_signal = pyqtSignal(str)
+    username_dialog_data_ready_signal = pyqtSignal(dict)
+    main_window_data_ready_signal = pyqtSignal(dict)
 
     def __init__(self):
         super().__init__()
         self.connection = None
         self.username = None
         self.loop = None
-        self.username_event = None
+        self.username_set_event = None
 
-    def confirm_username(self, username):
-        self.loop.call_soon_threadsafe(asyncio.create_task, self.send_username_handler(username))
+    def set_username(self, username):
+        self.loop.call_soon_threadsafe(asyncio.create_task, self.set_username_handler(username))
 
     def send_message(self, message):
         self.loop.call_soon_threadsafe(asyncio.create_task, self.send_single_message_handler(message))
@@ -47,32 +45,13 @@ class SimpleChatClient(QThread):
     async def recv(self) -> dict:
         return json.loads(await self.connection.recv())
 
-    async def send_username_handler(self, username):
-        assert self.username_event
+    async def set_username_handler(self, username):
+        assert self.username_set_event is not None
         self.username = username
-        await self.send({
-            'type': 'init',
-            'username': username
-        })
-        self.username_event.set()
+        self.username_set_event.set()
 
     async def send_single_message_handler(self, message):
         await self.send({'type': 'chat', 'username': self.username, 'message': message})
-
-    async def receive_handler(self):
-        while True:
-            data = await self.recv()
-            if data['type'] == 'chat':
-                self.display_message_header_signal.emit(
-                    data['username'] + ' [' +
-                    time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp'])) +
-                    ']: ', data['username'] == self.username
-                )
-                self.display_message_body_signal.emit(data['message'])
-            elif data['type'] == 'user_online':
-                self.display_notification_signal.emit('用户' + data['username'] + '已上线')
-            elif data['type'] == 'user_offline':
-                self.display_notification_signal.emit('用户' + data['username'] + '已下线')
 
     async def close_connection_handler(self):
         await self.connection.close()
@@ -80,24 +59,38 @@ class SimpleChatClient(QThread):
 
     async def main_handler(self):
         self.connection = await websockets.connect('ws://127.0.0.1:34999/', ping_interval=None)
+
         self.show_username_dialog_signal.emit()
 
+        self.username_set_event = asyncio.Event()
         self.loop = asyncio.get_event_loop()
-        self.username_event = asyncio.Event()
 
-        await self.username_event.wait()
-        assert self.username
+        await self.username_set_event.wait()
 
-        self.confirm_username_signal.emit(self.username)
-
+        await self.send({
+            'type': 'init',
+            'username': self.username
+        })
         data = await self.recv()
-        assert data['type'] == 'online_success'
-        self.display_notification_signal.emit(
-            self.username + '，欢迎！当前在线人数：' + str(data['number_of_online_users'])
-        )
-        del data
 
-        await self.receive_handler()
+        while data['type'] != 'online_success':
+            self.username_dialog_data_ready_signal.emit(data)
+
+            self.username_set_event.clear()
+            await self.username_set_event.wait()
+
+            await self.send({
+                'type': 'init',
+                'username': self.username
+            })
+            data = await self.recv()
+
+        assert data['type'] == 'online_success'
+        self.username_dialog_data_ready_signal.emit(data)
+        self.main_window_data_ready_signal.emit(data)
+
+        while True:
+            self.main_window_data_ready_signal.emit(await self.recv())
 
     def run(self):
         asyncio.run(self.main_handler())
@@ -117,11 +110,12 @@ class CustomTextEdit(QTextEdit):
 
 
 class UsernameDialog(QDialog):
-    def __init__(self, simple_chat_client, main_window):
+    def __init__(self, simple_chat_client):
         super().__init__()
 
         self.simple_chat_client = simple_chat_client
-        self.main_window = main_window
+        self.simple_chat_client.show_username_dialog_signal.connect(self.show)
+        self.simple_chat_client.username_dialog_data_ready_signal.connect(self.on_data_received)
 
         layout = QVBoxLayout()
 
@@ -140,24 +134,34 @@ class UsernameDialog(QDialog):
 
         self.setLayout(layout)
 
-        self.simple_chat_client.show_username_dialog_signal.connect(self.show)
-        self.simple_chat_client.confirm_username_signal.connect(self.confirm_username)
-
         self.setWindowTitle('Simple Chat')
         self.setWindowIcon(QIcon(':/simple_chat.png'))
         self.resize(400, 200)
         self.center()
 
     def start(self):
-        username = self.line_edit.text().strip()
-        if username == '':
-            QMessageBox.warning(self, '非法用户名', '用户名为空，请重新输入！')
-        else:
-            self.simple_chat_client.confirm_username(username)
+        self.line_edit.setEnabled(False)
+        self.start_button.setEnabled(False)
 
-    def confirm_username(self, username):
-        QMessageBox.information(self, '成功登录', '欢迎！' + username + '！')
-        self.accept()
+        username = self.line_edit.text().strip()
+        self.simple_chat_client.set_username(username)
+
+    def on_data_received(self, data: dict):
+        self.line_edit.setEnabled(True)
+        self.start_button.setEnabled(True)
+
+        if data['type'] == 'online_success':
+            QMessageBox.information(self, '成功登录', self.simple_chat_client.username + '，欢迎！')
+            self.accept()
+
+        elif data['type'] == 'empty_username':
+            QMessageBox.warning(self, '登录失败', '用户名不可为空！')
+
+        elif data['type'] == 'duplicate_username':
+            QMessageBox.warning(self, '登录失败', '已存在该用户名！')
+
+        else:
+            raise Exception('unexpected data received')
 
     def center(self):
         geometry = self.frameGeometry()
@@ -167,16 +171,13 @@ class UsernameDialog(QDialog):
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
 
-    def accept(self) -> None:
-        self.main_window.show()
-        super().accept()
-
 
 class MainWindow(QMainWindow):
     def __init__(self, simple_chat_client):
         super().__init__()
 
         self.simple_chat_client = simple_chat_client
+        self.simple_chat_client.main_window_data_ready_signal.connect(self.on_data_received)
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -204,10 +205,6 @@ class MainWindow(QMainWindow):
 
         central_widget.setLayout(layout)
 
-        self.simple_chat_client.display_message_header_signal.connect(self.display_message_header)
-        self.simple_chat_client.display_message_body_signal.connect(self.display_message_body)
-        self.simple_chat_client.display_notification_signal.connect(self.display_notification)
-
         self.setWindowTitle('Simple Chat')
         self.setWindowIcon(QIcon(':/simple_chat.png'))
         self.resize(800, 1000)
@@ -220,6 +217,29 @@ class MainWindow(QMainWindow):
             return
         self.simple_chat_client.send_message(message)
         self.message_input.clear()
+
+    def on_data_received(self, data):
+        if data['type'] == 'chat':
+            self.display_message_header(
+                data['username'] + ' [' +
+                time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp'])) +
+                ']: ', data['username'] == self.simple_chat_client.username
+            )
+            self.display_message_body(data['message'])
+
+        elif data['type'] == 'user_online':
+            self.display_notification('用户' + data['username'] + '已上线')
+
+        elif data['type'] == 'user_offline':
+            self.display_notification('用户' + data['username'] + '已下线')
+
+        elif data['type'] == 'online_success':
+            self.display_notification(
+                self.simple_chat_client.username + '，欢迎！当前在线人数：' + str(data['number_of_online_users'])
+            )
+
+        else:
+            raise Exception('unexpected data received')
 
     def display_message_header(self, text, is_self):
         self.append_text_to_chat_box(
@@ -264,6 +284,10 @@ class MainWindow(QMainWindow):
         geometry.moveCenter(QDesktopWidget().availableGeometry().center())
         self.move(geometry.topLeft())
 
+    def show(self) -> None:
+        self.message_input.setFocus()
+        super().show()
+
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
 
@@ -272,8 +296,10 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
 
     simple_chat_client = SimpleChatClient()
+    username_dialog = UsernameDialog(simple_chat_client)
     main_window = MainWindow(simple_chat_client)
-    username_dialog = UsernameDialog(simple_chat_client, main_window)
+
+    username_dialog.accepted.connect(main_window.show)
 
     simple_chat_client.start()
 
