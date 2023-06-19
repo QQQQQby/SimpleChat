@@ -1,0 +1,1 @@
+pyinstaller -F --icon="NONE" server.py --name="Simple Chat Server"
