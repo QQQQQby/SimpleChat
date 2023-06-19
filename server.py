@@ -8,7 +8,7 @@ import websockets
 from websockets.exceptions import ConnectionClosed, WebSocketException
 
 
-# TODO: 禁止用户名重复，若重名或空白则重新输入
+# TODO: 将客户端传入的连接封装为类
 
 
 # async def heartbeat(websocket, ping_interval):
@@ -71,22 +71,33 @@ async def send(connection, message: typing.Union[str, dict], check_send_event=Tr
     await asyncio.sleep(0)
 
 
+async def receive_username(connection):
+    data = json.loads(await connection.recv())
+    assert data['type'] == 'init'
+    return data['username']
+
+
 async def client_handler(connection):
     remote_address = connection.remote_address[0] + ':' + str(connection.remote_address[1])
     logger.info('Incoming connection from [' + remote_address + '].')
     try:
-        # Read the first message sent by the client and get the username
-        data = json.loads(await connection.recv())
-        assert data['type'] == 'init'
-        username = data['username']
-        del data
+        # Get username
+        username = await receive_username(connection)
+        while True:
+            if not username:
+                await send(connection, {'type': 'empty_username'}, False)
+            elif username in username_to_connection:
+                await send(connection, {'type': 'duplicate_username'}, False)
+            else:
+                break
+            username = await receive_username(connection)
     except WebSocketException as e:
         logger.warning('The connection with [' + remote_address + '] is closed due to error: ' + str(e))
         return
 
     # Record information of the user
     username_and_address = '[' + remote_address + '](' + username + ')'
-    logger.info(username_and_address + ' connected.')
+    logger.info(username_and_address + ' logged in.')
     send_event = asyncio.Event()
     connections[connection] = (username, send_event)
     username_to_connection[username] = connection
@@ -113,8 +124,10 @@ async def client_handler(connection):
         async for message in connection:
             data = json.loads(message)
             assert data['type'] == 'chat'
-            data['timestamp'] = int(time.time())
-            await broadcast_to_all(data)
+            data['message'] = data['message'].strip()
+            if data['message']:
+                data['timestamp'] = int(time.time())
+                await broadcast_to_all(data)
             del data
 
         logger.info(username_and_address + ' disconnected.')

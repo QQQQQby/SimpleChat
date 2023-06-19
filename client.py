@@ -5,11 +5,6 @@ import typing
 import websockets
 import json
 
-"""
-TODO: 
-重连机制
-"""
-
 
 async def send(connection, message: typing.Union[str, dict]):
     if type(message) is dict:
@@ -49,14 +44,29 @@ async def receive_handler(connection):
 async def main():
     async with websockets.connect('ws://127.0.0.1:34999/', ping_interval=None) as connection:
         loop = asyncio.get_event_loop()
-        username = await loop.run_in_executor(None, input, '输入用户名：')
 
+        username = await loop.run_in_executor(None, input, '请输入用户名：')
         await send(connection, {
             'type': 'init',
             'username': username
         })
-
         data = await recv(connection)
+
+        while True:
+            if data['type'] == 'empty_username':
+                print('用户名不可为空！请重新输入：')
+            elif data['type'] == 'duplicate_username':
+                print('已存在该用户名！请重新输入：')
+            else:
+                break
+
+            username = await loop.run_in_executor(None, input, '请输入用户名：')
+            await send(connection, {
+                'type': 'init',
+                'username': username
+            })
+            data = await recv(connection)
+
         assert data['type'] == 'online_success'
         print('欢迎！' + username + '。当前在线人数：' + str(data['number_of_online_users']))
 
