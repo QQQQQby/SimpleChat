@@ -6,9 +6,9 @@ import typing
 
 import websockets
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
-from PyQt5.QtGui import QColor, QFont, QTextBlockFormat, QCloseEvent, QIcon, QTextCursor
+from PyQt5.QtGui import QTextBlockFormat, QCloseEvent, QIcon, QTextCursor
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTextEdit, QLineEdit, QPushButton, \
-    QDialog, QMessageBox, QDesktopWidget, QHBoxLayout, QSplitter
+    QDialog, QMessageBox, QHBoxLayout, QSplitter
 
 import images
 
@@ -152,8 +152,13 @@ class UsernameDialog(QDialog):
 
         self.setWindowTitle('Simple Chat')
         self.setWindowIcon(QIcon(':/simple_chat.png'))
-        self.setFixedSize(250, 60)
-        self.center()
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        size = self.sizeHint()
+        size.setWidth(int(size.width() * 1.2))
+        size.setHeight(int(size.height() * 1.1))
+        self.resize(size)
+        self.move(QApplication.desktop().screen().rect().center() - self.rect().center())
 
     def start(self):
         self.username_edit.setEnabled(False)
@@ -178,11 +183,6 @@ class UsernameDialog(QDialog):
 
         else:
             raise Exception('unexpected data received')
-
-    def center(self):
-        geometry = self.frameGeometry()
-        geometry.moveCenter(QDesktopWidget().availableGeometry().center())
-        self.move(geometry.topLeft())
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
@@ -215,11 +215,13 @@ class MainWindow(QMainWindow):
         self.message_edit = CustomTextEdit(self.send_message)
         self.message_edit.setStyleSheet('''
             padding: 6px;
-            font-size: 20px;
+            font-size: 12px;
             border: 1px solid #ccc;
             border-radius: 5px;
         ''')
         splitter.addWidget(self.message_edit)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
 
         layout.addWidget(splitter)
 
@@ -227,7 +229,7 @@ class MainWindow(QMainWindow):
         self.send_button.setStyleSheet('''
             QPushButton {
                 padding: 8px 25px;
-                font-size: 14px;
+                font-size: 12px;
                 color: white;
                 background-color: #2eab2e;
                 border: none;
@@ -251,9 +253,12 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle('Simple Chat')
         self.setWindowIcon(QIcon(':/simple_chat.png'))
-        self.resize(500, 600)
-        splitter.setSizes([400, 200])
-        self.center()
+
+        screen_size = QApplication.primaryScreen().size()
+        self.resize(int(screen_size.width() * 0.25), int(screen_size.height() * 0.55))
+        self.move(QApplication.desktop().screen().rect().center() - self.rect().center())
+
+        self.message_edit.setFocus()
 
     def send_message(self):
         message = self.message_edit.toPlainText()
@@ -265,11 +270,13 @@ class MainWindow(QMainWindow):
 
     def on_data_received(self, data):
         if data['type'] == 'chat':
-            self.display_message_header(
-                data['username'] + ' [' +
-                time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp'])) +
-                ']: ', data['username'] == self.simple_chat_client.username
-            )
+
+            text = data['username'] + ' [' + \
+                   time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(data['timestamp'])) + ']: '
+            if data['username'] == self.simple_chat_client.username:
+                self.display_self_message_header(text)
+            else:
+                self.display_message_header(text)
             self.display_message_body(data['message'])
 
         elif data['type'] == 'user_online':
@@ -291,52 +298,36 @@ class MainWindow(QMainWindow):
 
         else:
             raise Exception('unexpected data received')
-
-    def display_message_header(self, text, is_self):
-        self.append_text_to_chat_box(
-            text,
-            color=(0, 128, 0) if is_self else (0, 0, 255),
-            font_size=12,
-            font_weight=QFont.Bold
-        )
-
-    def display_message_body(self, text):
-        self.append_text_to_chat_box(
-            text,
-            font_size=16,
-            paragraph_spacing=20
-        )
-
-    def display_notification(self, text):
-        self.append_text_to_chat_box(
-            text,
-            font_size=12,
-            color=(128, 128, 128),
-            paragraph_spacing=20
-        )
-
-    def append_text_to_chat_box(self, text,
-                                color=(0, 0, 0), font_family='SimSun', font_size=16, font_weight=QFont.Normal,
-                                paragraph_spacing=0):
-        self.chat_box_text_edit.setTextColor(QColor(*color))
-        self.chat_box_text_edit.setFontFamily(font_family)
-        self.chat_box_text_edit.setFontPointSize(font_size)
-        self.chat_box_text_edit.setFontWeight(font_weight)
-        self.chat_box_text_edit.append(text)
-
-        text_block_format = QTextBlockFormat()
-        text_block_format.setBottomMargin(paragraph_spacing)
-        cursor = self.chat_box_text_edit.textCursor()
-        cursor.setBlockFormat(text_block_format)
-        self.chat_box_text_edit.setTextCursor(cursor)
         self.chat_box_text_edit.moveCursor(QTextCursor.End)
 
-    def center(self):
-        self.move(QApplication.desktop().screen().rect().center() - self.rect().center())
+    def display_message_header(self, text):
+        style = 'color: #0000a0; font-size: 10px; font-weight: bold;'
 
-    def show(self) -> None:
-        self.message_edit.setFocus()
-        super().show()
+        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
+        self.set_bottom_margin(0)
+
+    def display_self_message_header(self, text):
+        style = 'color: #00a000; font-size: 10px; font-weight: bold'
+
+        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
+        self.set_bottom_margin(0)
+
+    def display_message_body(self, text):
+        style = 'font-size: 12px;'
+
+        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
+        self.set_bottom_margin(15)
+
+    def display_notification(self, text):
+        style = 'color: #808080; font-size: 10px;'
+
+        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
+        self.set_bottom_margin(15)
+
+    def set_bottom_margin(self, bottom_margin):
+        text_block_format = QTextBlockFormat()
+        text_block_format.setBottomMargin(bottom_margin)
+        self.chat_box_text_edit.textCursor().setBlockFormat(text_block_format)
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
