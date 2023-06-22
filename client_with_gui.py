@@ -206,19 +206,46 @@ class MainWindow(QMainWindow):
         self.chat_box_text_edit = QTextEdit()
         self.chat_box_text_edit.setReadOnly(True)
         self.chat_box_text_edit.setStyleSheet('''
-            padding: 6px;
-            border: 1px solid #ccc;
+            background: white;
+            padding: 0px 3px;
+            border: 1px solid #d6d6d6;
             border-radius: 5px;
+            font-size: 12px;
+        ''')
+
+        self.chat_box_text_edit.verticalScrollBar().setStyleSheet('''
+            QScrollBar:vertical {
+                width: 11px;
+                padding: 3px;
+                border: none;
+                border-radius: 0px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                min-height: 30px;
+                background: #dbdbdb;
+                border-radius: 2px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #a8a8a8;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: white;
+            }
+            QScrollBar::add-page:vertical:hover, QScrollBar::sub-page:vertical:hover {
+                background: #f1f1f1;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
         ''')
         splitter.addWidget(self.chat_box_text_edit)
 
         self.message_edit = CustomTextEdit(self.send_message)
-        self.message_edit.setStyleSheet('''
-            padding: 6px;
-            font-size: 12px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        ''')
+        self.message_edit.setStyleSheet(
+            self.chat_box_text_edit.styleSheet())
+        self.message_edit.verticalScrollBar().setStyleSheet(
+            self.chat_box_text_edit.verticalScrollBar().styleSheet())
         splitter.addWidget(self.message_edit)
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 1)
