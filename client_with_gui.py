@@ -6,22 +6,25 @@ import typing
 
 import websockets
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
-from PyQt5.QtGui import QTextBlockFormat, QCloseEvent, QIcon, QTextCursor
+from PyQt5.QtGui import QCloseEvent, QIcon, QTextCursor, QFont, QColor
 from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QTextEdit, QLineEdit, QPushButton, \
     QDialog, QMessageBox, QHBoxLayout, QSplitter
 
 import images
 
 
-# TODO: 重连机制；手动选择服务器
+# TODO: 手动选择服务器
 
 class SimpleChatClient(QThread):
     show_username_dialog_signal = pyqtSignal()
     username_dialog_data_ready_signal = pyqtSignal(dict)
     main_window_data_ready_signal = pyqtSignal(dict)
 
-    def __init__(self):
+    def __init__(self, url):
         super().__init__()
+
+        self.url = url
+
         self.connection = None
         self.username = None
         self.loop = None
@@ -58,7 +61,7 @@ class SimpleChatClient(QThread):
         self.loop.stop()
 
     async def main_handler(self):
-        self.connection = await websockets.connect('ws://127.0.0.1:34999/', ping_interval=None)
+        self.connection = await websockets.connect(self.url, ping_interval=None)
 
         self.show_username_dialog_signal.emit()
 
@@ -99,6 +102,7 @@ class SimpleChatClient(QThread):
 class CustomTextEdit(QTextEdit):
     def __init__(self, return_key_callback, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
         self.return_key_callback = return_key_callback
 
     def keyPressEvent(self, event):
@@ -192,10 +196,10 @@ class MainWindow(QMainWindow):
     def __init__(self, simple_chat_client):
         super().__init__()
 
-        self.number_of_online_users = 0
-
         self.simple_chat_client = simple_chat_client
         self.simple_chat_client.main_window_data_ready_signal.connect(self.on_data_received)
+
+        self.number_of_online_users = 0
 
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -242,6 +246,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self.chat_box_text_edit)
 
         self.message_edit = CustomTextEdit(self.send_message)
+        self.message_edit.setAcceptRichText(False)
         self.message_edit.setStyleSheet(
             self.chat_box_text_edit.styleSheet())
         self.message_edit.verticalScrollBar().setStyleSheet(
@@ -325,36 +330,37 @@ class MainWindow(QMainWindow):
 
         else:
             raise Exception('unexpected data received')
-        self.chat_box_text_edit.moveCursor(QTextCursor.End)
 
     def display_message_header(self, text):
-        style = 'color: #0000a0; font-size: 10px; font-weight: bold;'
-
-        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
-        self.set_bottom_margin(0)
+        self.append_text(text, font_point_size=7.5, font_weight=QFont.Bold, text_color=QColor(0, 0, 160))
 
     def display_self_message_header(self, text):
-        style = 'color: #00a000; font-size: 10px; font-weight: bold'
-
-        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
-        self.set_bottom_margin(0)
+        self.append_text(text, font_point_size=7.5, font_weight=QFont.Bold, text_color=QColor(0, 160, 0))
 
     def display_message_body(self, text):
-        style = 'font-size: 12px;'
-
-        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
-        self.set_bottom_margin(15)
+        self.append_text(text, font_point_size=9.0, bottom_margin=10)
 
     def display_notification(self, text):
-        style = 'color: #808080; font-size: 10px;'
+        self.append_text(text, font_point_size=7.5, font_italic=True, text_color=QColor(180, 180, 180),
+                         bottom_margin=10)
 
-        self.chat_box_text_edit.append('<p style=\'' + style + '\'>' + text + '</p>')
-        self.set_bottom_margin(15)
+    def append_text(self, text, font_point_size=9.0, font_weight=QFont.Normal, font_italic=False,
+                    text_color=QColor(0, 0, 0), alignment=Qt.AlignLeft, bottom_margin=0):
+        self.chat_box_text_edit.moveCursor(QTextCursor.End)
+        self.chat_box_text_edit.append('')
 
-    def set_bottom_margin(self, bottom_margin):
-        text_block_format = QTextBlockFormat()
+        self.chat_box_text_edit.setFontPointSize(font_point_size)
+        self.chat_box_text_edit.setFontWeight(font_weight)
+        self.chat_box_text_edit.setFontItalic(font_italic)
+        self.chat_box_text_edit.setTextColor(text_color)
+        self.chat_box_text_edit.insertPlainText(text)
+
+        text_block_format = self.chat_box_text_edit.textCursor().blockFormat()
+        text_block_format.setAlignment(alignment)
         text_block_format.setBottomMargin(bottom_margin)
         self.chat_box_text_edit.textCursor().setBlockFormat(text_block_format)
+
+        self.chat_box_text_edit.moveCursor(QTextCursor.End)
 
     def closeEvent(self, a0: QCloseEvent) -> None:
         self.simple_chat_client.close_connection()
@@ -364,7 +370,7 @@ if __name__ == '__main__':
     QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = QApplication(sys.argv)
 
-    simple_chat_client = SimpleChatClient()
+    simple_chat_client = SimpleChatClient('ws://127.0.0.1:34999/')
     username_dialog = UsernameDialog(simple_chat_client)
     main_window = MainWindow(simple_chat_client)
 
