@@ -27,6 +27,8 @@ pip install websockets PyQt5 pyinstaller
 
 ### Server
 
+To run the server, execute:
+
 ```sh
 python server.py
 ```
@@ -63,7 +65,7 @@ Alternatively, run the PyQt5 client:
 python client_with_gui.py
 ```
 
-Enter your desired username and start chatting!
+To modify the server you want to connect, modify the `HOST` and `PORT` values in the `.py` file first. Enter your desired username and start chatting!
 
 To create an executable file, run:
 
